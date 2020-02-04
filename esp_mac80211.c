@@ -369,7 +369,7 @@ u8 beacon_tim_saved[BEACON_TIM_SAVE_MAX];
 int beacon_tim_count;
 static void beacon_tim_init(void)
 {
-	memset(beacon_tim_saved, BEACON_TIM_SAVE_MAX, 0);
+	memset(beacon_tim_saved, 0, BEACON_TIM_SAVE_MAX);
 	beacon_tim_count = 0;
 }
 
@@ -1592,8 +1592,9 @@ static int esp_op_ampdu_action(struct ieee80211_hw *hw,
                                enum ieee80211_ampdu_mlme_action action,
                                struct ieee80211_sta *sta, u16 tid, u16 *ssn,
                                u8 buf_size)
+/* ODROID FIXME */
 #else
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 6, 0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0))
 static int esp_op_ampdu_action(struct ieee80211_hw *hw,
                                struct ieee80211_vif *vif,
                                enum ieee80211_ampdu_mlme_action action,
@@ -1610,7 +1611,8 @@ static int esp_op_ampdu_action(struct ieee80211_hw *hw,
 {
         int ret = -EOPNOTSUPP;
         struct esp_pub *epub = (struct esp_pub *)hw->priv;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 6, 0))
+/* ODROID FIXME */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0))
 	enum ieee80211_ampdu_mlme_action action = params->action;
 	struct ieee80211_sta *sta = params->sta;
 	u16 tid = params->tid;
