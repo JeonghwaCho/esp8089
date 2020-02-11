@@ -1,5 +1,9 @@
-/*
- * Copyright (c) 2011-2014 Espressif System.
+/* Copyright (c) 2008 -2014 Espressif System.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
  *
  * test mode    
  */
@@ -89,7 +93,7 @@ static void sip_send_test_cmd(struct esp_sip *sip, struct sk_buff *skb)
         	skb_queue_head(&sip->epub->txq, skb);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 32)
-        if(sif_get_ate_config() == 0){
+        if(sif_get_ate_config() == ATECONF_MODE_NORMAL){
             ieee80211_queue_work(sip->epub->hw, &sip->epub->tx_work);
         } else {
             queue_work(sip->epub->esp_wkq, &sip->epub->tx_work);
@@ -134,11 +138,36 @@ out:
         return -EINVAL;
 }
 
+struct esp_node* get_enode(struct esp_pub *epub, bool flag)
+{
+    struct esp_node *enode = NULL;
+    if(flag)
+        enode = esp_get_node_by_addr(epub,SIP->epub->wl.bssid);
+    else{
+        int i;
+        for(i = 0; i < ESP_PUB_MAX_STA + 1; i++) 
+            if(epub->enodes[i] != NULL){
+                enode = epub->enodes[i];
+                break;
+            }    
+    }    
+    return enode;
+}
+
+void show_addr(u8 *addr)
+{
+    int j;
+    esp_dbg(ESP_DBG_ERROR,"\n*******************show_addr**********\n");
+    for(j = 0; j < ETH_ALEN; j++)
+        esp_dbg(ESP_DBG_ERROR,"  0x%02x",addr[j]);
+    esp_dbg(ESP_DBG_ERROR,"\n");
+}
+
 static int esp_test_echo(struct sk_buff *skb_2,
                          struct genl_info *info)
 {
         char *echo_info;
-        int res;
+        int res = 0;
 
         if (info == NULL)
                 goto out;
@@ -164,6 +193,31 @@ static int esp_test_echo(struct sk_buff *skb_2,
 	if (strncmp(echo_info, "queue_tail", 10) == 0) {
         	esp_dbg(ESP_DBG_ERROR, "echo : change to queue head");
 		queue_flag = 0;
+	}
+
+	if (strncmp(echo_info, "send_disasso", 12) == 0) {
+        esp_dbg(ESP_DBG_ERROR, "echo : send_disasso\n");
+        esp_dbg(ESP_DBG_ERROR,"**epub->master_addr***\n");
+        show_addr(SIP->epub->master_addr);
+        esp_dbg(ESP_DBG_ERROR,"**epub->mac_addr***\n");
+        show_addr(SIP->epub->mac_addr);
+        do {
+            struct esp_node *enode = NULL;
+            enode = get_enode(SIP->epub, 0);;
+            if(enode == NULL) {
+                esp_dbg(ESP_DBG_ERROR,"**enode is NULL\n");
+         //       break;
+            }
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 28))
+            if(enode) {
+                esp_dbg(ESP_DBG_ERROR,"**enode->sta->addr***\n");
+                show_addr(enode->sta->addr);
+            }
+            res = esp_sta_send_out_disasso(SIP->epub, enode, 0, NULL);
+#endif
+            esp_dbg(ESP_DBG_ERROR, "esp_sta_send_out_disasso res = %d\n", res);
+        }while(0);
+
 	}
 
         res=esp_test_cmd_reply(info, TEST_CMD_ECHO, echo_info);
@@ -212,16 +266,19 @@ out:
 }
 
 static void * ate_done_data;
-static char ate_reply_str[128];
+static char ate_reply_str[256];
+int ate_resp_count = 0;
 void esp_test_ate_done_cb(char *ep)
 {
 	memset(ate_reply_str, 0, sizeof(ate_reply_str));
 	strcpy(ate_reply_str, ep);
 
-	esp_dbg(ESP_DBG_ERROR, "%s %s\n", __func__, ate_reply_str);
+    esp_dbg(ESP_DBG_ERROR, "%s %s\n", __func__, ate_reply_str);
 
-	if (ate_done_data)
+	if (ate_done_data) {
 		complete(ate_done_data);
+        ate_done_data = NULL;
+    }
 }
 
 static int esp_test_ate(struct sk_buff *skb_2,
@@ -241,6 +298,7 @@ static int esp_test_ate(struct sk_buff *skb_2,
 
 
 	ate_done_data = &complete;
+    ate_resp_count = 0;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
         connected_nl = info->snd_portid;
 #else
@@ -673,7 +731,7 @@ static int sip_send_tx_frame(struct esp_sip *sip, u32 packet_len)
                 ptr[i] = i;
         }
 
-		if(sif_get_ate_config() == 0){
+		if(sif_get_ate_config() == ATECONF_MODE_NORMAL){
 			sip_tx_data_pkt_enqueue(sip->epub, skb);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 32))
         	ieee80211_queue_work(sip->epub->hw, &sip->epub->tx_work);
@@ -911,7 +969,7 @@ static int esp_test_netlink_notify(struct notifier_block *nb,
 #else
         if (notify->pid == connected_nl) {
 #endif
-                esp_dbg(ESP_DBG_ERROR, "esp_sdio: user released netlink"
+                esp_dbg(ESP_DBG, "esp_sdio: user released netlink"
                        " socket \n");
                 connected_nl = 0;
         }
@@ -1124,9 +1182,10 @@ void esp_stability_test(char *filename,struct esp_pub *epub)
 
             }
 
+#if (!defined(CONFIG_DEBUG_FS) || !defined(DEBUGFS_BOOTMODE)) && !defined(ESP_CLASS)
             request_init_conf();
-
-            if(sif_get_ate_config() == 0)
+#endif
+            if(sif_get_ate_config() == ATECONF_MODE_NORMAL)
             {
 
                 sprintf(test_res_str, "ok, count = %d !!!\n", count);
@@ -1139,7 +1198,7 @@ void esp_stability_test(char *filename,struct esp_pub *epub)
             }
 
             //for apk test
-            if(sif_get_ate_config() == 3)
+            if(sif_get_ate_config() == ATECONF_MODE_FOR_APK_TEST)
             {
                 sprintf(test_res_str, "error, count = %d !!!\n", count);
 
@@ -1408,21 +1467,21 @@ void esp_test_init(struct esp_pub *epub)
         sprintf(filename, "%s/%s", mod_eagle_path_get(), "test_results");
 
     sif_lock_bus(epub);
-    sif_had_io_enable(epub);
+    sif_hda_io_enable(epub);
     sif_unlock_bus(epub);
 
-    if(sif_get_ate_config() == 2){
+    if(sif_get_ate_config() == ATECONF_MODE_STABILITY_TEST){
         esp_stability_test(filename,epub);
 
-    } else if(sif_get_ate_config() == 4){
+    } else if(sif_get_ate_config() == ATECONF_MODE_IO_RATE_TEST){
         esp_rate_test(filename,epub);
     }
 #ifdef ESP_USE_SPI
-    else if(sif_get_ate_config() == 5){
+    else if(sif_get_ate_config() == ATECONF_MODE_SPI_RESP_TEST){
         esp_resp_test(filename,epub);
     }        
 #endif
-    else if(sif_get_ate_config() == 6){
+    else if(sif_get_ate_config() == ATECONF_MODE_NOISEFLOOR_TEST){
         esp_noisefloor_test(filename,epub);
     }
 }

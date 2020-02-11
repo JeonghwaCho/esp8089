@@ -1,17 +1,11 @@
-/*
- * Copyright (c) 2009 - 2014 Espressif System.
- * 
- * SIP ctrl packet parse and pack
+/* Copyright (c) 2008 -2014 Espressif System.
  *
  * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * 
+ * SIP ctrl packet parse and pack
  */
 
 #include <net/mac80211.h>
@@ -30,12 +24,18 @@
 #include "esp_wl.h"
 #include "esp_file.h"
 #include "esp_path.h"
+#include "esp_mac80211.h"
 #ifdef TEST_MODE
 #include "testmode.h"
 #endif /* TEST_MODE */
 #include "esp_version.h"
+#define EPRINTF_BLOCK_SIZE 128
 
 extern struct completion *gl_bootup_cplx; 
+extern struct completion *gl_product_cplx; 
+extern int ate_resp_count;
+char *product_res_str;
+static int i = 0;
 
 static void esp_tx_ba_session_op(struct esp_sip *sip, struct esp_node *node, trc_ampdu_state_t state, u8 tid )
 {
@@ -90,7 +90,6 @@ static void esp_tx_ba_session_op(struct esp_sip *sip, struct esp_node *node, trc
         }
 }
 
-#ifdef TEST_MODE
 int sip_parse_event_debug(struct esp_pub *epub, const u8 *src, u8 *dst)
 {
 	struct sip_evt_debug* debug_evt =  (struct sip_evt_debug *)(src + SIP_CTRL_HDR_LEN);
@@ -104,7 +103,7 @@ int sip_parse_event_debug(struct esp_pub *epub, const u8 *src, u8 *dst)
 
 			while (mask != 0) {
 				index = ffs(mask) - 1;
-				if (index >= ESP_PUB_MAX_STA)
+				if (index > ESP_PUB_MAX_STA)
 					break;
 				enode = esp_get_node_by_index(epub, index);
 				if (enode == NULL) {
@@ -136,8 +135,6 @@ int sip_parse_event_debug(struct esp_pub *epub, const u8 *src, u8 *dst)
 
 	return 0;
 }
-#endif /*TEST_MODE*/
-
 
 int sip_parse_events(struct esp_sip *sip, u8 *buf)
 {
@@ -307,22 +304,49 @@ int sip_parse_events(struct esp_sip *sip, u8 *buf)
                 break;
         }
 
-#ifdef TEST_MODE
 	case SIP_EVT_EP: {
 		char *ep = (char *)(buf + SIP_CTRL_HDR_LEN);
-		static int counter = 0;
+        bool test_end_flag = false;
+        int j;
 
-		esp_dbg(ESP_ATE, "%s EVT_EP \n\n", __func__);
-		if (counter++ < 2) {
-			esp_dbg(ESP_ATE, "ATE: %s \n", ep);
+        if(strstr(ep, "don't use rtc mem data")){
+            i = 0;
+            product_res_str = (char *)kmalloc(4096, GFP_KERNEL);
+            if(product_res_str == NULL){
+                esp_dbg(ESP_DBG_ERROR,"%s kmalloc err\n",__func__);
+				return -ENOMEM;
+            }
+            memset(product_res_str,'\0',sizeof(product_res_str));
+        }
+
+		if(sif_get_ate_config() == ATECONF_MODE_PRODUCT_TEST){
+        	for(j = 0; j < EPRINTF_BLOCK_SIZE - SIP_CTRL_HDR_LEN; j++, i++)
+        	    product_res_str[i] = ep[j];
+
+            if(strstr(product_res_str, "MODULE_TEST END")) {
+                test_end_flag = true;
+            }
 		}
 
-		esp_test_ate_done_cb(ep);
+		if(test_end_flag){
+            char filename[256];
+			if (mod_eagle_path_get() == NULL)
+                sprintf(filename, "%s/%s", FWPATH, "test_results");
+			else
+                sprintf(filename, "%s/%s", mod_eagle_path_get(), "test_results");
 
+            esp_readwrite_file(filename, NULL, product_res_str, strlen(product_res_str));
+
+		    if (gl_product_cplx)	
+			    complete(gl_product_cplx);
+		}
+
+		if(sif_get_ate_config() == ATECONF_MODE_ATE_TEST && ate_resp_count == 0){
+            ate_resp_count = 1;
+		    esp_test_ate_done_cb(ep);
+        }
 		break;
 	}
-#endif /*TEST_MODE*/
-
 	case SIP_EVT_INIT_EP: {
 		char *ep = (char *)(buf + SIP_CTRL_HDR_LEN);
 		esp_dbg(ESP_ATE, "Phy Init: %s \n", ep);
@@ -333,6 +357,37 @@ int sip_parse_events(struct esp_sip *sip, u8 *buf)
 		struct sip_evt_noisefloor *ep = (struct sip_evt_noisefloor *)(buf + SIP_CTRL_HDR_LEN);	                                      
 		atomic_set(&sip->noise_floor, ep->noise_floor);
 		break;
+	}
+	
+	case SIP_EVT_NULLFUNC_REPORT:{
+		struct sip_evt_nullfunc_report *nr = (struct sip_evt_nullfunc_report *)(buf + SIP_CTRL_HDR_LEN);
+		struct esp_node *enode = NULL;
+		u8 ifidx = nr->ifidx;
+		u8 index = nr->index;
+		u8 status = nr->status;
+
+		if (index < 0 && index > ESP_PUB_MAX_STA)
+			break;
+
+		if (sip->epub->master_ifidx != ifidx)
+			break;
+
+		enode = esp_get_node_by_index(sip->epub, index);
+		if (!enode)
+			break;
+
+		if (atomic_read(&enode->sta_state) == ESP_STA_STATE_LOST)
+			break;
+
+		/* assert status equals 0 , else ignore */
+		if (status != 0)
+			esp_dbg(ESP_DBG_ERROR, "nulldata status strange");
+
+		atomic_set(&enode->loss_count, 0);
+		atomic_set(&enode->time_remain, ESP_ND_TIME_REMAIN_MAX);
+		atomic_set(&enode->sta_state, ESP_STA_STATE_NORM);
+
+		esp_dbg(ESP_DBG_TRACE, "index %d, status %d, loss %d, tremain %d", index, status, atomic_read(&enode->loss_count), atomic_read(&enode->time_remain));
 	}
         default:
                 break;
@@ -350,6 +405,9 @@ int sip_parse_events(struct esp_sip *sip, u8 *buf)
 void sip_send_chip_init(struct esp_sip *sip)
 {
 	size_t size = 0;
+#if (defined(CONFIG_DEBUG_FS) && defined(DEBUGFS_BOOTMODE)) || defined(ESP_CLASS)
+	u8 *tmp_init_data = NULL;
+#endif
 #ifndef HAS_INIT_DATA
         const struct firmware *fw_entry;
         u8 * esp_init_data = NULL;
@@ -373,15 +431,30 @@ void sip_send_chip_init(struct esp_sip *sip)
         }
 #else
 	size = sizeof(esp_init_data);
-
 #endif /* !HAS_INIT_DATA */
 
+#if (defined(CONFIG_DEBUG_FS) && defined(DEBUGFS_BOOTMODE)) || defined(ESP_CLASS)
+	tmp_init_data = kmemdup(esp_init_data, size, GFP_KERNEL);
+	if (tmp_init_data == NULL) {
+		esp_dbg(ESP_DBG_ERROR, "tmp_init_data alloc failed");
+#ifndef HAS_INIT_DATA
+        	kfree(esp_init_data);
+#endif /* !HAS_INIT_DATA */
+		return;
+	}
+	fix_init_data(tmp_init_data, size);
+#else
 	fix_init_data(esp_init_data, size);
-
+#endif
 	atomic_sub(1, &sip->tx_credits);
 	
-	sip_send_cmd(sip, SIP_CMD_INIT, size, (void *)esp_init_data);
+#if (defined(CONFIG_DEBUG_FS) && defined(DEBUGFS_BOOTMODE)) || defined(ESP_CLASS)
+	sip_send_cmd(sip, SIP_CMD_INIT, size, (void *)tmp_init_data);
 
+	kfree(tmp_init_data);
+#else
+	sip_send_cmd(sip, SIP_CMD_INIT, size, (void *)esp_init_data);
+#endif
 #ifndef HAS_INIT_DATA
         kfree(esp_init_data);
 #endif /* !HAS_INIT_DATA */
@@ -623,14 +696,14 @@ int sip_send_setkey(struct esp_pub *epub, u8 bssid_no, u8 *peer_addr, struct iee
         setkeycmd->hw_key_idx= key->hw_key_idx;
 
         if (isvalid) {
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 39))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 37))
                 setkeycmd->alg= key->alg;
 #else
                 setkeycmd->alg= esp_cipher2alg(key->cipher);
 #endif /* NEW_KERNEL */
                 setkeycmd->keyidx = key->keyidx;
                 setkeycmd->keylen = key->keylen;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 39))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 37))
                 if (key->alg == ALG_TKIP) {
 #else
                 if (key->cipher == WLAN_CIPHER_SUITE_TKIP) {
@@ -805,3 +878,59 @@ int sip_cmd(struct esp_pub *epub, enum sip_cmd_id cmd_id, u8 *cmd_buf, u8 cmd_le
 
 	return sip_cmd_enqueue(epub->sip, skb, ENQUEUE_PRIOR_TAIL);
 }
+
+struct sk_buff *esp_build_disasso(const u8 *sta_addr, const u8 *ap_addr)
+{
+    struct sk_buff *skb;
+    struct esp_80211_disasso *disasso;
+
+    skb = dev_alloc_skb(sizeof(struct esp_80211_disasso));
+    if (!skb)
+        return NULL;
+
+    skb_put(skb, sizeof(struct esp_80211_disasso));
+    disasso = (struct esp_80211_disasso *)skb->data;
+    memset(disasso, 0x00, sizeof(struct esp_80211_disasso));
+
+    disasso->hdr.frame_control = cpu_to_le16(IEEE80211_STYPE_DISASSOC |
+                IEEE80211_FTYPE_MGMT
+                );   /* TO DS 1 */
+
+    disasso->hdr.duration_id = cpu_to_le16(0x13a); /* 60ms */
+
+    memcpy(disasso->hdr.addr1, ap_addr, ETH_ALEN); /* bssid */
+    memcpy(disasso->hdr.addr2, sta_addr, ETH_ALEN); /* sa */
+    memcpy(disasso->hdr.addr3, ap_addr, ETH_ALEN); /* da */
+    disasso->hdr.seq_ctrl = cpu_to_le16(0x0000);
+    disasso->reason_code = cpu_to_le16(0x0008); /* sta leaving */
+
+    return skb;
+
+}
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 28))
+int esp_sta_send_out_disasso(struct esp_pub *epub, struct esp_node *enode , u8 tid, const u8 *ap_addr)
+{
+    struct sk_buff *skb;
+
+    if(ap_addr)
+        esp_dbg(ESP_SHOW, "%s enter, sta tid  %d addr %pM\n", __func__, tid, ap_addr);
+
+    if(ap_addr) {
+        skb = esp_build_disasso(epub->mac_addr, ap_addr);
+    }else if(enode) {
+        skb = esp_build_disasso(epub->mac_addr, enode->sta->addr);
+    }else {
+        esp_dbg(ESP_SHOW, "%s ap_addr and enode is NULL\n", __func__);
+        return -ENOMEM;
+    }
+
+    if (!skb)
+        return -ENOMEM;
+
+    IEEE80211_SKB_CB(skb)->control.vif = epub->vif;
+    sip_tx_data_pkt_enqueue(epub, skb);
+
+    return 0;
+}
+#endif

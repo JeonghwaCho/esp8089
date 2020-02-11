@@ -1,5 +1,9 @@
-/*
- * Copyright (c) 2010 -2014 Espressif System.
+/* Copyright (c) 2008 -2014 Espressif System.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
  *
  *   spi serial i/f driver
  *    - sdio device control routines
@@ -29,8 +33,6 @@
 #include "esp_ext.h"
 #endif /* USE_EXT_GPIO */
 
-static int __init esp_spi_init(void);
-static void __exit esp_spi_exit(void);
 
 #ifdef ESP_PREALLOC
 extern u8 *esp_get_lspi_buf(void);
@@ -112,7 +114,7 @@ struct esp_spi_ctrl *sif_sctrl = NULL;
 static struct esp_spi_resp spi_resp;
 
 #ifdef ESP_ANDROID_LOGGER
-bool log_off = false;
+bool log_off = true;
 #endif /* ESP_ANDROID_LOGGER */
 
 #ifdef REQUEST_RTC_IRQ
@@ -1921,7 +1923,7 @@ int esp_setup_spi(struct spi_device *spi)
 	spi_resp.max_block_dataW_resp_size = 0;
 	spi_resp.max_block_dataR_resp_size = 0;
 	spi_resp.max_cmd_resp_size = 0;
-	if( sif_get_ate_config() != 5)
+	if( sif_get_ate_config() != ATECONF_MODE_SPI_RESP_TEST)
 	{
         	spi_resp.data_resp_size_w = DATA_RESP_SIZE_W;
         	spi_resp.data_resp_size_r = DATA_RESP_SIZE_R;
@@ -2012,7 +2014,7 @@ static int esp_spi_probe(struct spi_device *spi)
         	sctrl->epub = epub;
 	
 #ifdef USE_EXT_GPIO
-		if (sif_get_ate_config() == 0) {
+		if (sif_get_ate_config() == ATECONF_MODE_NORMAL) {
 			err = ext_gpio_init(epub);
 			if (err) {
                 		esp_dbg(ESP_DBG_ERROR, "ext_irq_work_init failed %d\n", err);
@@ -2063,7 +2065,7 @@ static int esp_spi_probe(struct spi_device *spi)
         return err;
 _err_ext_gpio:
 #ifdef USE_EXT_GPIO	
-	if (sif_get_ate_config() == 0)
+	if (sif_get_ate_config() == ATECONF_MODE_NORMAL)
 		ext_gpio_deinit();
 _err_epub:
 #endif
@@ -2131,7 +2133,7 @@ static int esp_spi_remove(struct spi_device *spi)
                         	esp_dbg(ESP_DBG_TRACE, "%s sip detached \n", __func__);
                 	}
 #ifdef USE_EXT_GPIO	
-			if (sif_get_ate_config() == 0)
+			if (sif_get_ate_config() == ATECONF_MODE_NORMAL)
 				ext_gpio_deinit();
 #endif
 		} else {
@@ -2252,28 +2254,18 @@ struct spi_driver esp_spi_dummy_driver = {
 	.remove	= esp_spi_dummy_remove,
 };
 
-static int __init esp_spi_init(void) 
+int esp_spi_init(void) 
 {
 #define ESP_WAIT_UP_TIME_MS 11000
         int err;
-        u64 ver;
         int retry = 3;
         bool powerup = false;
-        int edf_ret = 0;
 
         esp_dbg(ESP_DBG_TRACE, "%s \n", __func__);
 
 #ifdef REGISTER_SPI_BOARD_INFO
 	sif_platform_register_board_info();
 #endif
-
-#ifdef DRIVER_VER
-        ver = DRIVER_VER;
-        esp_dbg(ESP_SHOW, "\n***** EAGLE DRIVER VER:%llx*****\n\n", ver);
-#endif
-        edf_ret = esp_debugfs_init();
-
-	request_init_conf();
 
         esp_wakelock_init();
         esp_wake_lock();
@@ -2325,7 +2317,7 @@ static int __init esp_spi_init(void)
         spi_register_driver(&esp_spi_driver);
 
         if (down_timeout(&esp_powerup_sem,
-                                 msecs_to_jiffies(ESP_WAIT_UP_TIME_MS)) == 0 && sif_get_ate_config() == 0) {
+                                 msecs_to_jiffies(ESP_WAIT_UP_TIME_MS)) == 0 && sif_get_ate_config() == ATECONF_MODE_NORMAL) {
 		if(sif_sdio_state == ESP_SDIO_STATE_FIRST_NORMAL_EXIT){
                 	spi_unregister_driver(&esp_spi_driver);
 
@@ -2352,12 +2344,10 @@ _fail:
         return err;
 }
 
-static void __exit esp_spi_exit(void) 
+void esp_spi_exit(void) 
 {
 	esp_dbg(ESP_SHOW, "%s \n", __func__);
 
-	esp_debugfs_exit();
-	
         esp_unregister_early_suspend();
 
 	spi_unregister_driver(&esp_spi_driver);

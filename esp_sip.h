@@ -1,17 +1,11 @@
-/*
- *  Copyright (c) 2009- 2014 Espressif System.
- *
- *    Serial Interconnctor Protocol
+/* Copyright (c) 2008 -2014 Espressif System.
  *
  * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ *
+ *    Serial Interconnctor Protocol
  */
 
 #ifndef _ESP_SIP_H
@@ -154,6 +148,8 @@ void sip_rx_data_pkt_enqueue(struct esp_pub *epub, struct sk_buff *skb);
 int sip_cmd_enqueue(struct esp_sip *sip, struct sk_buff *skb, int prior);
 
 int sip_poll_bootup_event(struct esp_sip *sip);
+
+int sip_poll_product_event(struct esp_sip *sip);
 
 int sip_poll_resetting_event(struct esp_sip *sip);
 

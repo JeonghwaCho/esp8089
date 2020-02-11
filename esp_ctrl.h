@@ -1,20 +1,16 @@
-/*
- *  Copyright (c) 2009- 2014 Espressif System.
- *
- *  SIP ctrl packet parse and pack
+/* Copyright (c) 2008 -2014 Espressif System.
  *
  * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ *
+ *  SIP ctrl packet parse and pack
  */
 #ifndef _ESP_CTRL_H_
 #define _ESP_CTRL_H_
+
+int esp_sta_send_out_disasso(struct esp_pub *epub, struct esp_node *enode , u8 tid, const u8 *ap_addr);
 
 int sip_send_loopback_mblk(struct esp_sip *sip, int txpacket_len, int rxpacket_len, int packet_id);
 

@@ -1,1 +1,1 @@
-#define DRIVER_VER 0xbdf5087c3debll
+#define DRIVER_VER 0xc249bff4d9d5ll
