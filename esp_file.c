@@ -538,9 +538,9 @@ static ssize_t nor_store(struct class *cls, const char *ubuf, size_t count)
 	unsigned long var;
 
 	if (ubuf[0] == '0' && (ubuf[1] == 'x' || ubuf[1] == 'X'))
-		ret = strict_strtoul(ubuf, 16, &var);
+		ret = kstrtoul(ubuf, 16, &var);
 	else 
-		ret = strict_strtoul(ubuf, 10, &var);
+		ret = kstrtoul(ubuf, 10, &var);
 
 	if (ret) {
 		esp_dbg(ESP_DBG_ERROR, "invalid input");
@@ -603,9 +603,9 @@ static ssize_t ate_store(struct class *cls, const char *ubuf, size_t count)
 	unsigned long var;
 
 	if (ubuf[0] == '0' && (ubuf[1] == 'x' || ubuf[1] == 'X'))
-		ret = strict_strtoul(ubuf, 16, &var);
+		ret = kstrtoul(ubuf, 16, &var);
 	else 
-		ret = strict_strtoul(ubuf, 10, &var);
+		ret = kstrtoul(ubuf, 10, &var);
 
 	if (ret) {
 		esp_dbg(ESP_DBG_ERROR, "invalid input");
@@ -643,9 +643,9 @@ static ssize_t fcc_store(struct class *cls, const char *ubuf, size_t count)
 	unsigned long var;
 
 	if (ubuf[0] == '0' && (ubuf[1] == 'x' || ubuf[1] == 'X'))
-		ret = strict_strtoul(ubuf, 16, &var);
+		ret = kstrtoul(ubuf, 16, &var);
 	else 
-		ret = strict_strtoul(ubuf, 10, &var);
+		ret = kstrtoul(ubuf, 10, &var);
 
 	if (ret) {
 		esp_dbg(ESP_DBG_ERROR, "invalid input");

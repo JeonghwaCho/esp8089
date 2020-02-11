@@ -316,7 +316,9 @@ int sip_parse_events(struct esp_sip *sip, u8 *buf)
                 esp_dbg(ESP_DBG_ERROR,"%s kmalloc err\n",__func__);
 				return -ENOMEM;
             }
-            memset(product_res_str,'\0',sizeof(product_res_str));
+
+            memset(product_res_str,'\0', 4096);
+
         }
 
 		if(sif_get_ate_config() == ATECONF_MODE_PRODUCT_TEST){

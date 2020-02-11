@@ -1040,8 +1040,12 @@ int test_init_netlink(struct esp_sip *sip)
         sdio_buff = kzalloc(8, GFP_KERNEL);
 	    sdiotest_buf = kzalloc(16*1024, GFP_KERNEL);
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 31))
         rc = genl_register_family_with_ops(&test_genl_family,
                                            esp_test_ops, ARRAY_SIZE(esp_test_ops));
+#else
+	rc = genl_register_family_with_ops(&test_genl_family, esp_test_ops);
+#endif
         if (rc)
                 goto failure;
 

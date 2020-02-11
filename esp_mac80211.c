@@ -1817,7 +1817,9 @@ static int esp_op_set_bitrate_mask(struct ieee80211_hw *hw, struct ieee80211_vif
 }
 #endif
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))        
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
+void esp_op_flush(struct ieee80211_hw *hw, struct ieee80211_vif *vif, u32 queues, bool drop)
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))        
 void esp_op_flush(struct ieee80211_hw *hw, u32 queues, bool drop)
 #else
 void esp_op_flush(struct ieee80211_hw *hw, bool drop)
@@ -1866,16 +1868,38 @@ static int esp_op_ampdu_action(struct ieee80211_hw *hw,
                                enum ieee80211_ampdu_mlme_action action,
                                struct ieee80211_sta *sta, u16 tid, u16 *ssn)
 #else
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 2, 0))
 static int esp_op_ampdu_action(struct ieee80211_hw *hw,
                                struct ieee80211_vif *vif,
                                enum ieee80211_ampdu_mlme_action action,
                                struct ieee80211_sta *sta, u16 tid, u16 *ssn,
                                u8 buf_size)
+#else
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0))
+static int esp_op_ampdu_action(struct ieee80211_hw *hw,
+                               struct ieee80211_vif *vif,
+                               enum ieee80211_ampdu_mlme_action action,
+                               struct ieee80211_sta *sta, u16 tid, u16 *ssn,
+                               u8 buf_size, bool amsdu)
+#else
+static int esp_op_ampdu_action(struct ieee80211_hw *hw,
+                               struct ieee80211_vif *vif,
+                               struct ieee80211_ampdu_params *params)
+#endif
+#endif
 #endif
 #endif /* NEW_KERNEL && KERNEL_35 */
 {
         int ret = -EOPNOTSUPP;
         struct esp_pub *epub = (struct esp_pub *)hw->priv;
+/* ODROID FIXME */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0))
+	enum ieee80211_ampdu_mlme_action action = params->action;
+	struct ieee80211_sta *sta = params->sta;
+	u16 tid = params->tid;
+	u16 *ssn = &params->ssn;
+	u8 buf_size = params->buf_size;
+#endif
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 28))
         struct esp_node * node = (struct esp_node *)sta->drv_priv;
 #else
@@ -2392,9 +2416,19 @@ esp_pub_init_mac80211(struct esp_pub *epub)
         };
 #endif
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,14,0))
         hw->channel_change_time = 420000; /* in us */
+#endif
         hw->max_listen_interval = 10;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0 ))
+	ieee80211_hw_set(hw, SIGNAL_DBM);
+	ieee80211_hw_set(hw, HAS_RATE_CONTROL);	
+	ieee80211_hw_set(hw, MFP_CAPABLE);
+	ieee80211_hw_set(hw, SUPPORTS_PS);
+	ieee80211_hw_set(hw, AMPDU_AGGREGATION);
+	ieee80211_hw_set(hw, HOST_BROADCAST_PS_BUFFERING);
+#else
         hw->flags = IEEE80211_HW_SIGNAL_DBM |
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 33))
                     IEEE80211_HW_HAS_RATE_CONTROL |
@@ -2407,6 +2441,7 @@ esp_pub_init_mac80211(struct esp_pub *epub)
                 IEEE80211_HW_AMPDU_AGGREGATION |
 #endif
 				IEEE80211_HW_HOST_BROADCAST_PS_BUFFERING;
+#endif /*Linux 4.2.0*/
    //IEEE80211_HW_PS_NULLFUNC_STACK |	
         //IEEE80211_HW_CONNECTION_MONITOR |
         //IEEE80211_HW_BEACON_FILTER |
